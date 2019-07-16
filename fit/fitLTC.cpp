@@ -35,6 +35,8 @@ const float pi = acosf(-1.0f);
 void computeAvgTerms(const Brdf& brdf, const vec3& V, const float alpha,
     float& norm, float& fresnel, vec3& averageDir)
 {
+	// TODO: alpha is not sufficient for hair, modify signature
+
     norm = 0.0f;
     fresnel = 0.0f;
     averageDir = vec3(0, 0, 0);
@@ -46,12 +48,70 @@ void computeAvgTerms(const Brdf& brdf, const vec3& V, const float alpha,
         const float U2 = (j + 0.5f)/Nsample;
 
         // sample
-        const vec3 L = brdf.sample(V, alpha, U1, U2);
+		////const vec3 L = brdf.sample(V, alpha, U1, U2);
+
+		// Get the 3 important directions
+		vec3 LHair[3];
+		brdf.sampleHair(V,
+			U1, U2,
+			vec3(1.0f) /*Tangent*/,
+			0.0f /*h*/,
+			vec3(0.0f) /*sigma_a*/,
+			1.55f /*eta*/,
+			0.5f /*beta_m*/,
+			0.5f /*beta_n*/,
+			0.0f /*alpha*/,
+			LHair);
 
         // eval
-        float pdf;
-        float eval = brdf.eval(V, L, alpha, pdf);
+        ////float pdf;
+        ////float eval = brdf.eval(V, L, alpha, pdf);
 
+		float pdfR;
+		vec3 evalR = brdf.evalHair(V,
+			LHair[0],
+			vec3(1.0f) /*Tangent*/,
+			0.0f /*h*/,
+			vec3(0.0f) /*sigma_a*/,
+			1.55f /*eta*/,
+			0.5f /*beta_m*/,
+			0.5f /*beta_n*/,
+			0.0f /*alpha*/,
+			0,
+			pdfR);
+
+		float pdfTT;
+		vec3 evalTT = brdf.evalHair(V,
+			LHair[1],
+			vec3(1.0f) /*Tangent*/,
+			0.0f /*h*/,
+			vec3(0.0f) /*sigma_a*/,
+			1.55f /*eta*/,
+			0.5f /*beta_m*/,
+			0.5f /*beta_n*/,
+			0.0f /*alpha*/,
+			1,
+			pdfTT);
+
+
+		float pdfTRT;
+		vec3 evalTRT = brdf.evalHair(V,
+			LHair[2],
+			vec3(1.0f) /*Tangent*/,
+			0.0f /*h*/,
+			vec3(0.0f) /*sigma_a*/,
+			1.55f /*eta*/,
+			0.5f /*beta_m*/,
+			0.5f /*beta_n*/,
+			0.0f /*alpha*/,
+			2,
+			pdfTRT);
+
+
+		// Fix the remaining code to deal with 3 elements
+		float pdf = 0.0f;
+		float eval = 0.0f;
+		vec3 L(0.0f);
         if (pdf > 0)
         {
             float weight = eval / pdf;

@@ -8,6 +8,17 @@
 #define M_LN_2PI	1.8378770664093454f // ln(2*pi)
 #define P_MAX		3
 
+void Assert(bool test)
+{
+	if (!test)
+	{
+		// Just for quick debug/test
+		int* i = nullptr;
+		*i = 0;
+	}
+}
+
+
 struct PrincipledHairBsdf
 {
 	float h;
@@ -50,9 +61,9 @@ float Sqr(float value)
 
 // Hair bsdf proper
 
-void PrincipledHairBsdfDecodeGBuffer(vec4 baseColorBuffer, vec4 normalBuffer, vec4 materialBuffer, PrincipledHairBsdf& bsdf)
+void PrincipledHairBsdfDecodeGBuffer(float h, vec4 baseColorBuffer, vec4 normalBuffer, vec4 materialBuffer, PrincipledHairBsdf& bsdf)
 {
-	bsdf.h = 0; // TODO: find a way to compute this from gbuffer
+	bsdf.h = h; // TODO: find a way to compute this from gbuffer
 	bsdf.eta = normalBuffer.a;
 	bsdf.beta_m = materialBuffer.r;
 	bsdf.beta_n = materialBuffer.g;
@@ -293,4 +304,51 @@ vec3 EvalPrincipledHairBsdf(vec3 wo, vec3 wi, PrincipledHairBsdf bsdf)
 	if (abs(wi.z) > 0) fsum /= abs(wi.z);
 
 	return fsum;
+}
+
+vec3 BrdfHair::evalHair(const vec3& V,
+	const vec3& L,
+	const vec3& Tangent,
+	float h,
+	const vec3& sigma_a,
+	float eta,
+	float beta_m,
+	float beta_n,
+	float alpha,
+	int p, // 0 == R, 1 == TT, 2 == TRT, 3 == whatever is left
+	float& pdf) const
+{
+	vec4 baseColorBuffer(sigma_a.x, sigma_a.y, sigma_a.z, 1.0f);
+	vec4 normalBuffer(Tangent.x, Tangent.y, Tangent.z, eta);
+	vec4 materialBuffer(beta_m, beta_n, 0.0f, alpha);
+
+	PrincipledHairBsdf bsdf;
+	PrincipledHairBsdfDecodeGBuffer(h, baseColorBuffer, normalBuffer, materialBuffer, bsdf);
+
+	Assert(bsdf.h == h);
+	Assert(bsdf.eta == eta);
+	Assert(bsdf.beta_m == beta_m);
+	Assert(bsdf.beta_n == beta_n);
+	Assert(bsdf.alpha == alpha);
+	Assert(all(equal(bsdf.sigma_a, sigma_a)));
+
+	// This is not correct, we should evaluate a specific part of hair bsdf based on p
+	vec3 result = EvalPrincipledHairBsdf(V, L, bsdf);
+
+	pdf = 0.0f;
+	return result;
+}
+
+void BrdfHair::sampleHair(const vec3& V,
+	const float U1, const float U2,
+	const vec3& Tangent,
+	float h,
+	const vec3& sigma_a,
+	float eta,
+	float beta_m,
+	float beta_n,
+	float alpha,
+	vec3 L[3]) const
+{
+	// TODO
 }
