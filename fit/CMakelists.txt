@@ -1,0 +1,67 @@
+cmake_minimum_required(VERSION 3.14)
+
+function(scanAndAppend outListVariable)
+    set(noValueArgs RECURSIVE)
+    set(oneValueArgs RELATIVE)
+
+    # cmake will generate those variables
+    # SCAN_RECURSIVE
+    # SCAN_RELATIVE
+    # SCAN_UNPARSED_ARGUMENTS
+    cmake_parse_arguments(SCAN "${noValueArgs}" "${oneValueArgs}" "" ${ARGN})
+
+    # handle globing argument
+    set(SCAN_GLOB "GLOB")
+
+    if (SCAN_RECURSIVE)
+        string(APPEND SCAN_GLOB "_RECURSE")
+    endif ()
+
+    # trigger scan
+    if (SCAN_RELATIVE STREQUAL "")
+        file(${SCAN_GLOB}
+                SCAN_RESULT
+                ${SCAN_UNPARSED_ARGUMENTS})
+    else ()
+        file(${SCAN_GLOB}
+                SCAN_RESULT
+                RELATIVE ${SCAN_RELATIVE}
+                ${SCAN_UNPARSED_ARGUMENTS})
+    endif ()
+
+    # append result to outListVariable
+    list(APPEND ${outListVariable} ${SCAN_RESULT})
+
+    # since we are in a function, list(APPEND) actually
+    # appends in this finction scope, so need to propagate
+    # to caller
+    set(${outListVariable} ${${outListVariable}} PARENT_SCOPE)
+
+    #	 debug output
+    #	 message(STATUS "outListVariable : ${outListVariable}")
+    #	 message(STATUS "SCAN_RECURSIVE  : ${SCAN_RECURSIVE}")
+    #	 message(STATUS "SCAN_GLOB       : ${SCAN_GLOB}")
+    #	 message(STATUS "SCAN_RELATIVE   : ${SCAN_RELATIVE}")
+    #	 message(STATUS "glob expressions: ${SCAN_UNPARSED_ARGUMENTS}")
+endfunction()
+
+project (FitLTC)
+
+scanAndAppend(FITLTC_SOURCES
+        RECURSIVE
+        RELATIVE "${CMAKE_CURRENT_LIST_DIR}"
+        "*.cpp"
+        "*.c"
+        "*.h")
+list(FILTER FITLTC_SOURCES EXCLUDE REGEX "build/.*")
+
+source_group(TREE ${CMAKE_CURRENT_LIST_DIR}
+        FILES ${FITLTC_SOURCES})
+
+include_directories(${CMAKE_CURRENT_LIST_DIR}/../external/glm)
+include_directories(${CMAKE_CURRENT_LIST_DIR}/../external/CImg)
+
+add_compile_options(/wd4996)
+add_compile_options(/wd4319)
+
+add_executable(FitLTC ${FITLTC_SOURCES})
