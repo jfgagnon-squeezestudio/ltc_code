@@ -307,19 +307,12 @@ vec3 EvalPrincipledHairBsdf(vec3 wo, vec3 wi, PrincipledHairBsdf bsdf)
 }
 
 vec3 BrdfHair::evalHair(const vec3& V,
-	const vec3& L,
-	const vec3& Tangent,
-	float h,
-	const vec3& sigma_a,
-	float eta,
-	float beta_m,
-	float beta_n,
-	float alpha,
-	int p, // 0 == R, 1 == TT, 2 == TRT, 3 == whatever is left
+	const vec3 L[3],
+	int p,
 	float& pdf) const
 {
 	vec4 baseColorBuffer(sigma_a.x, sigma_a.y, sigma_a.z, 1.0f);
-	vec4 normalBuffer(Tangent.x, Tangent.y, Tangent.z, eta);
+	vec4 normalBuffer(1.0f, 0.0f, 0.0f, eta);
 	vec4 materialBuffer(beta_m, beta_n, 0.0f, alpha);
 
 	PrincipledHairBsdf bsdf;
@@ -333,21 +326,14 @@ vec3 BrdfHair::evalHair(const vec3& V,
 	Assert(all(equal(bsdf.sigma_a, sigma_a)));
 
 	// This is not correct, we should evaluate a specific part of hair bsdf based on p
-	vec3 result = EvalPrincipledHairBsdf(V, L, bsdf);
-
+	vec3 result = vec3(0.0f);
 	pdf = 0.0f;
+
 	return result;
 }
 
 void BrdfHair::sampleHair(const vec3& V,
 	const float U1, const float U2,
-	const vec3& Tangent,
-	float h,
-	const vec3& sigma_a,
-	float eta,
-	float beta_m,
-	float beta_n,
-	float alpha,
 	vec3 L[3]) const
 {
 	// TODO

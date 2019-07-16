@@ -32,14 +32,17 @@ const float pi = acosf(-1.0f);
 // * the norm (albedo) of the BRDF
 // * the average Schlick Fresnel value
 // * the average direction of the BRDF
-void computeAvgTerms(const Brdf& brdf, const vec3& V, const float alpha,
-    float& norm, float& fresnel, vec3& averageDir)
+void computeAvgTerms(const BrdfHair& brdf, const vec3& V,
+    LTC ltc[3], vec3 averageDir[3])
 {
-	// TODO: alpha is not sufficient for hair, modify signature
-
-    norm = 0.0f;
-    fresnel = 0.0f;
-    averageDir = vec3(0, 0, 0);
+	{
+		for (int j = 0; j < 3; ++j)
+		{
+			ltc[j].magnitude = 0.0f;
+			ltc[j].fresnel = 0.0f;
+			averageDir[j] = vec3(0, 0, 0);
+		}
+	}
 
     for (int j = 0; j < Nsample; ++j)
     for (int i = 0; i < Nsample; ++i)
@@ -52,86 +55,47 @@ void computeAvgTerms(const Brdf& brdf, const vec3& V, const float alpha,
 
 		// Get the 3 important directions
 		vec3 LHair[3];
-		brdf.sampleHair(V,
-			U1, U2,
-			vec3(1.0f) /*Tangent*/,
-			0.0f /*h*/,
-			vec3(0.0f) /*sigma_a*/,
-			1.55f /*eta*/,
-			0.5f /*beta_m*/,
-			0.5f /*beta_n*/,
-			0.0f /*alpha*/,
-			LHair);
+		brdf.sampleHair(V, U1, U2, LHair);
 
         // eval
         ////float pdf;
         ////float eval = brdf.eval(V, L, alpha, pdf);
 
-		float pdfR;
-		vec3 evalR = brdf.evalHair(V,
-			LHair[0],
-			vec3(1.0f) /*Tangent*/,
-			0.0f /*h*/,
-			vec3(0.0f) /*sigma_a*/,
-			1.55f /*eta*/,
-			0.5f /*beta_m*/,
-			0.5f /*beta_n*/,
-			0.0f /*alpha*/,
-			0,
-			pdfR);
+		for (int p = 0; p < 3; ++p)
+		{
+			float pdf;
+			vec3 eval = brdf.evalHair(V, LHair, p, pdf);
 
-		float pdfTT;
-		vec3 evalTT = brdf.evalHair(V,
-			LHair[1],
-			vec3(1.0f) /*Tangent*/,
-			0.0f /*h*/,
-			vec3(0.0f) /*sigma_a*/,
-			1.55f /*eta*/,
-			0.5f /*beta_m*/,
-			0.5f /*beta_n*/,
-			0.0f /*alpha*/,
-			1,
-			pdfTT);
+			if (pdf > 0)
+			{
+				const vec3 L = LHair[p];
+				const float luminance = dot(eval, vec3(0.2126f, 0.7152f, 0.0722f));
 
+				float weight = luminance / pdf;
 
-		float pdfTRT;
-		vec3 evalTRT = brdf.evalHair(V,
-			LHair[2],
-			vec3(1.0f) /*Tangent*/,
-			0.0f /*h*/,
-			vec3(0.0f) /*sigma_a*/,
-			1.55f /*eta*/,
-			0.5f /*beta_m*/,
-			0.5f /*beta_n*/,
-			0.0f /*alpha*/,
-			2,
-			pdfTRT);
+				vec3 H = normalize(V+L);
 
-
-		// Fix the remaining code to deal with 3 elements
-		float pdf = 0.0f;
-		float eval = 0.0f;
-		vec3 L(0.0f);
-        if (pdf > 0)
-        {
-            float weight = eval / pdf;
-
-            vec3 H = normalize(V+L);
-
-            // accumulate
-            norm       += weight;
-            fresnel    += weight * pow(1.0f - glm::max(dot(V, H), 0.0f), 5.0f);
-            averageDir += weight * L;
-        }
+				// accumulate
+				ltc[p].magnitude  += weight;
+				ltc[p].fresnel    += weight * pow(1.0f - glm::max(dot(V, H), 0.0f), 5.0f);
+				averageDir[p] += weight * L;
+			}
+		}
     }
 
-    norm    /= (float)(Nsample*Nsample);
-    fresnel /= (float)(Nsample*Nsample);
+	{
+		for (int j = 0; j < 3; ++j)
+		{
+			ltc[j].magnitude /= (float)(Nsample*Nsample);
+			ltc[j].fresnel /= (float)(Nsample*Nsample);
 
-    // clear y component, which should be zero with isotropic BRDFs
-    averageDir.y = 0.0f;
+			// TODO: really?
+			// clear y component, which should be zero with isotropic BRDFs
+			averageDir[j].y = 0.0f;
 
-    averageDir = normalize(averageDir);
+			averageDir[j] = normalize(averageDir[j]);
+		}
+	}
 }
 
 // compute the error between the BRDF and the LTC
@@ -241,11 +205,11 @@ void fit(LTC& ltc, const Brdf& brdf, const vec3& V, const float alpha, const flo
 }
 
 // fit data
-void fitTab(mat3* tab, vec2* tabMagFresnel, const int N, const Brdf& brdf)
+void fitTab(mat3* tab, vec2* tabMagFresnel, const int N, BrdfHair& brdf)
 {
-    LTC ltc;
+    LTC ltc[3];
 
-    // loop over theta and alpha
+    // loop over brdf parameters
     for (int a = N - 1; a >=     0; --a)
     for (int t =     0; t <= N - 1; ++t)
     {
@@ -263,70 +227,81 @@ void fitTab(mat3* tab, vec2* tabMagFresnel, const int N, const Brdf& brdf)
         cout << "alpha = " << alpha << "\t theta = " << theta << endl;
         cout << endl;
 
-        vec3 averageDir;
-        computeAvgTerms(brdf, V, alpha, ltc.magnitude, ltc.fresnel, averageDir);
+		// TODO: assign proper values based on current iteration
+		brdf.h = 0.0f;
+		brdf.eta = 1.55f;
+		brdf.beta_m = 0.5f;;
+		brdf.beta_n = 0.5f;
+		brdf.alpha = 0.0f;
+		brdf.sigma_a = vec3(0.0f);
 
-        bool isotropic;
+        vec3 averageDir[3];
+        computeAvgTerms(brdf, V, ltc, averageDir);
 
-        // 1. first guess for the fit
-        // init the hemisphere in which the distribution is fitted
-        // if theta == 0 the lobe is rotationally symmetric and aligned with Z = (0 0 1)
-        if (t == 0)
-        {
-            ltc.X = vec3(1, 0, 0);
-            ltc.Y = vec3(0, 1, 0);
-            ltc.Z = vec3(0, 0, 1);
+		for (int p = 0; p < 3; ++p)
+		{
+			bool isotropic;
 
-            if (a == N - 1) // roughness = 1
-            {
-                ltc.m11 = 1.0f;
-                ltc.m22 = 1.0f;
-            }
-            else // init with roughness of previous fit
-            {
-                ltc.m11 = tab[a + 1 + t*N][0][0];
-                ltc.m22 = tab[a + 1 + t*N][1][1];
-            }
+			// 1. first guess for the fit
+			// init the hemisphere in which the distribution is fitted
+			// if theta == 0 the lobe is rotationally symmetric and aligned with Z = (0 0 1)
+			if (t == 0)
+			{
+				ltc.X = vec3(1, 0, 0);
+				ltc.Y = vec3(0, 1, 0);
+				ltc.Z = vec3(0, 0, 1);
 
-            ltc.m13 = 0;
-            ltc.update();
+				if (a == N - 1) // roughness = 1
+				{
+					ltc.m11 = 1.0f;
+					ltc.m22 = 1.0f;
+				}
+				else // init with roughness of previous fit
+				{
+					ltc.m11 = tab[a + 1 + t*N][0][0];
+					ltc.m22 = tab[a + 1 + t*N][1][1];
+				}
 
-            isotropic = true;
-        }
-        // otherwise use previous configuration as first guess
-        else
-        {
-            vec3 L = averageDir;
-            vec3 T1(L.z, 0, -L.x);
-            vec3 T2(0, 1, 0);
-            ltc.X = T1;
-            ltc.Y = T2;
-            ltc.Z = L;
+				ltc.m13 = 0;
+				ltc.update();
 
-            ltc.update();
+				isotropic = true;
+			}
+			// otherwise use previous configuration as first guess
+			else
+			{
+				vec3 L = averageDir;
+				vec3 T1(L.z, 0, -L.x);
+				vec3 T2(0, 1, 0);
+				ltc.X = T1;
+				ltc.Y = T2;
+				ltc.Z = L;
 
-            isotropic = false;
-        }
+				ltc.update();
 
-        // 2. fit (explore parameter space and refine first guess)
-        float epsilon = 0.05f;
-        fit(ltc, brdf, V, alpha, epsilon, isotropic);
+				isotropic = false;
+			}
 
-        // copy data
-        tab[a + t*N] = ltc.M;
-        tabMagFresnel[a + t*N][0] = ltc.magnitude;
-        tabMagFresnel[a + t*N][1] = ltc.fresnel;
+			// 2. fit (explore parameter space and refine first guess)
+			float epsilon = 0.05f;
+			fit(ltc, brdf, V, alpha, epsilon, isotropic);
 
-        // kill useless coefs in matrix
-        tab[a+t*N][0][1] = 0;
-        tab[a+t*N][1][0] = 0;
-        tab[a+t*N][2][1] = 0;
-        tab[a+t*N][1][2] = 0;
+			////// copy data
+			////tab[a + t*N] = ltc.M;
+			////tabMagFresnel[a + t*N][0] = ltc.magnitude;
+			////tabMagFresnel[a + t*N][1] = ltc.fresnel;
 
-        cout << tab[a+t*N][0][0] << "\t " << tab[a+t*N][1][0] << "\t " << tab[a+t*N][2][0] << endl;
-        cout << tab[a+t*N][0][1] << "\t " << tab[a+t*N][1][1] << "\t " << tab[a+t*N][2][1] << endl;
-        cout << tab[a+t*N][0][2] << "\t " << tab[a+t*N][1][2] << "\t " << tab[a+t*N][2][2] << endl;
-        cout << endl;
+			////// kill useless coefs in matrix
+			////tab[a+t*N][0][1] = 0;
+			////tab[a+t*N][1][0] = 0;
+			////tab[a+t*N][2][1] = 0;
+			////tab[a+t*N][1][2] = 0;
+
+			////cout << tab[a+t*N][0][0] << "\t " << tab[a+t*N][1][0] << "\t " << tab[a+t*N][2][0] << endl;
+			////cout << tab[a+t*N][0][1] << "\t " << tab[a+t*N][1][1] << "\t " << tab[a+t*N][2][1] << endl;
+			////cout << tab[a+t*N][0][2] << "\t " << tab[a+t*N][1][2] << "\t " << tab[a+t*N][2][2] << endl;
+			////cout << endl;
+		}
     }
 }
 
