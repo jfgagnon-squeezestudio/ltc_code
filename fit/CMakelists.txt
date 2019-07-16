@@ -63,5 +63,6 @@ include_directories(${CMAKE_CURRENT_LIST_DIR}/../external/CImg)
 
 add_compile_options(/wd4996)
 add_compile_options(/wd4319)
+add_compile_options(/wd4244)
 
 add_executable(FitLTC ${FITLTC_SOURCES})

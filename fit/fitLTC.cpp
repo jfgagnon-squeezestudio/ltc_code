@@ -9,6 +9,7 @@ using namespace glm;
 
 #include "LTC.h"
 #include "brdf.h"
+#include "brdf_hair.h"
 #include "brdf_ggx.h"
 #include "brdf_beckmann.h"
 #include "brdf_disneyDiffuse.h"
@@ -367,7 +368,8 @@ void packTab(
 int main(int argc, char* argv[])
 {
     // BRDF to fit
-    BrdfGGX brdf;
+	BrdfHair brdf;
+    //BrdfGGX brdf;
     //BrdfBeckmann brdf;
     //BrdfDisneyDiffuse brdf;
 
