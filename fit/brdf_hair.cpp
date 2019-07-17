@@ -307,7 +307,7 @@ vec3 EvalPrincipledHairBsdf(vec3 wo, vec3 wi, PrincipledHairBsdf bsdf)
 }
 
 vec3 BrdfHair::evalHair(const vec3& V,
-	const vec3 L[3],
+	const vec3& L,
 	int p,
 	float& pdf) const
 {

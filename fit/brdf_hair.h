@@ -23,7 +23,7 @@ public:
 	// See https://www.pbrt.org/hair.pdf.
 	// Hair bsdf is factored into 3 terms: Mp, Ap and Np. Don't know if I could remove some,
 	vec3 evalHair(const vec3& V,
-		const vec3 L[3],
+		const vec3& L,
 		int p, // 0 == R, 1 == TT, 2 == TRT
 		float& pdf) const;
 

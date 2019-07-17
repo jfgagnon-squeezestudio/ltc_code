@@ -28,6 +28,11 @@ const float MIN_ALPHA = 0.00001f;
 
 const float pi = acosf(-1.0f);
 
+float luminance(const vec3& value)
+{
+	return dot(value, vec3(0.2126f, 0.7152f, 0.0722f));
+}
+
 // computes
 // * the norm (albedo) of the BRDF
 // * the average Schlick Fresnel value
@@ -63,15 +68,16 @@ void computeAvgTerms(const BrdfHair& brdf, const vec3& V,
 
 		for (int p = 0; p < 3; ++p)
 		{
+			const vec3& L = LHair[p];
+
 			float pdf;
-			vec3 eval = brdf.evalHair(V, LHair, p, pdf);
+			vec3 eval = brdf.evalHair(V, L, p, pdf);
 
 			if (pdf > 0)
 			{
-				const vec3 L = LHair[p];
-				const float luminance = dot(eval, vec3(0.2126f, 0.7152f, 0.0722f));
+				const float lumi = luminance(eval);
 
-				float weight = luminance / pdf;
+				float weight = lumi / pdf;
 
 				vec3 H = normalize(V+L);
 
@@ -100,7 +106,7 @@ void computeAvgTerms(const BrdfHair& brdf, const vec3& V,
 
 // compute the error between the BRDF and the LTC
 // using Multiple Importance Sampling
-float computeError(const LTC& ltc, const Brdf& brdf, const vec3& V, const float alpha)
+float computeError(const LTC& ltc, const BrdfHair& brdf, const vec3& V, const int p)
 {
     double error = 0.0;
 
@@ -116,7 +122,9 @@ float computeError(const LTC& ltc, const Brdf& brdf, const vec3& V, const float 
             const vec3 L = ltc.sample(U1, U2);
 
             float pdf_brdf;
-            float eval_brdf = brdf.eval(V, L, alpha, pdf_brdf);
+			vec3 evalHair = brdf.evalHair(V, L, p, pdf_brdf);
+			float eval_brdf = luminance(evalHair);
+
             float eval_ltc = ltc.eval(L);
             float pdf_ltc = eval_ltc/ltc.magnitude;
 
@@ -129,10 +137,14 @@ float computeError(const LTC& ltc, const Brdf& brdf, const vec3& V, const float 
         // importance sample BRDF
         {
             // sample
-            const vec3 L = brdf.sample(V, alpha, U1, U2);
+			vec3 LHair[3];
+			brdf.sampleHair(V, U1, U2, LHair);
+
+			const vec3 L = LHair[p];
 
             float pdf_brdf;
-            float eval_brdf = brdf.eval(V, L, alpha, pdf_brdf);
+			vec3 evalHair = brdf.evalHair(V, L, p, pdf_brdf);
+			float eval_brdf = luminance(evalHair);
             float eval_ltc = ltc.eval(L);
             float pdf_ltc = eval_ltc/ltc.magnitude;
 
@@ -148,8 +160,8 @@ float computeError(const LTC& ltc, const Brdf& brdf, const vec3& V, const float 
 
 struct FitLTC
 {
-    FitLTC(LTC& ltc_, const Brdf& brdf, bool isotropic_, const vec3& V_, float alpha_) :
-        ltc(ltc_), brdf(brdf), V(V_), alpha(alpha_), isotropic(isotropic_)
+    FitLTC(LTC& ltc_, const BrdfHair& brdf, bool isotropic_, const vec3& V_, int p_) :
+        ltc(ltc_), brdf(brdf), V(V_), p(p_), isotropic(isotropic_)
     {
     }
 
@@ -177,25 +189,25 @@ struct FitLTC
     float operator()(const float* params)
     {
         update(params);
-        return computeError(ltc, brdf, V, alpha);
+        return computeError(ltc, brdf, V, p);
     }
 
-    const Brdf& brdf;
+    const BrdfHair& brdf;
     LTC& ltc;
     bool isotropic;
+	int p;
 
     const vec3& V;
-    float alpha;
 };
 
 // fit brute force
 // refine first guess by exploring parameter space
-void fit(LTC& ltc, const Brdf& brdf, const vec3& V, const float alpha, const float epsilon = 0.05f, const bool isotropic = false)
+void fit(LTC& ltc, const BrdfHair& brdf, const vec3& V, const int p, const float epsilon = 0.05f, const bool isotropic = false)
 {
     float startFit[3] = { ltc.m11, ltc.m22, ltc.m13 };
     float resultFit[3];
 
-    FitLTC fitter(ltc, brdf, isotropic, V, alpha);
+    FitLTC fitter(ltc, brdf, isotropic, V, p);
 
     // Find best-fit LTC lobe (scale, alphax, alphay)
     float error = NelderMead<3>(resultFit, startFit, epsilon, 1e-5f, 100, fitter);
@@ -207,7 +219,7 @@ void fit(LTC& ltc, const Brdf& brdf, const vec3& V, const float alpha, const flo
 // fit data
 void fitTab(mat3* tab, vec2* tabMagFresnel, const int N, BrdfHair& brdf)
 {
-    LTC ltc[3];
+    LTC ltcHair[3];
 
     // loop over brdf parameters
     for (int a = N - 1; a >=     0; --a)
@@ -235,11 +247,15 @@ void fitTab(mat3* tab, vec2* tabMagFresnel, const int N, BrdfHair& brdf)
 		brdf.alpha = 0.0f;
 		brdf.sigma_a = vec3(0.0f);
 
-        vec3 averageDir[3];
-        computeAvgTerms(brdf, V, ltc, averageDir);
+        vec3 averageDirHair[3];
+        computeAvgTerms(brdf, V, ltcHair, averageDirHair);
 
-		for (int p = 0; p < 3; ++p)
+		// only computing data for p=0 -> R so we do not have to change tab[] right away
+		for (int p = 0; p < 1 /*3*/; ++p)
 		{
+			LTC& ltc = ltcHair[p];
+			vec3& averageDir = averageDirHair[p];
+
 			bool isotropic;
 
 			// 1. first guess for the fit
@@ -284,7 +300,7 @@ void fitTab(mat3* tab, vec2* tabMagFresnel, const int N, BrdfHair& brdf)
 
 			// 2. fit (explore parameter space and refine first guess)
 			float epsilon = 0.05f;
-			fit(ltc, brdf, V, alpha, epsilon, isotropic);
+			fit(ltc, brdf, V, p, epsilon, isotropic);
 
 			////// copy data
 			////tab[a + t*N] = ltc.M;
